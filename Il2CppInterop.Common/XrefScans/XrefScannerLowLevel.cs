@@ -31,7 +31,13 @@ public static class XrefScannerLowLevel
                 // We hope and pray that the compiler didn't use short jumps for any function calls
                 if (!instruction.IsJmpShort)
                 {
-                    yield return (IntPtr)ExtractTargetAddress(in instruction);
+                    // Indirect call/jmp (register or memory operand) has no statically-extractable
+                    // target. These are common in LLVM-optimized IL2CPP builds (e.g. macOS
+                    // GameAssembly.dylib) but rare in MSVC output, which is why this only surfaces
+                    // on some platforms. Skip them instead of throwing, matching CallAndIndirectTargetsImpl.
+                    var targetAddress = ExtractTargetAddress(in instruction);
+                    if (targetAddress != 0)
+                        yield return (IntPtr)targetAddress;
                     if (firstFlowControl && instruction.FlowControl == FlowControl.UnconditionalBranch) yield break;
                 }
             }
@@ -94,7 +100,9 @@ public static class XrefScannerLowLevel
             case OpKind.FarBranch32:
                 return instruction.FarBranch32;
             default:
-                throw new ArgumentOutOfRangeException();
+                // Indirect branch (register/memory operand): no static target to extract.
+                // Matches the public XrefScanner.ExtractTargetAddress contract (returns 0).
+                return 0;
         }
     }
 }
